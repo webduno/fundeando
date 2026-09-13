@@ -28,12 +28,15 @@ export type PledgeStatus = "pending" | "paid" | "failed" | "expired";
 export type Pledge = {
   id: string;
   campaign_id: string;
-  backer_id: string;
+  /** null when the backer pledged without signing in. */
+  backer_id: string | null;
   amount_usdt: number;
   amount_bs: number;
   bcv_rate: number;
   recipient_alias: string;
   spidi_session_id: string;
+  /** Set for guest pledges; returned at create, required to confirm. */
+  guest_token: string | null;
   status: PledgeStatus;
   paid_at: string | null;
   created_at: string;

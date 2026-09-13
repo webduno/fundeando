@@ -1,12 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { authedFetch, readJson } from "@/lib/api";
+import { optionalAuthFetch, readJson } from "@/lib/api";
 import { MIN_PLEDGE_USDT, formatUsdt, parseUsdt } from "@/lib/spidi/shared";
 import type { Pledge } from "@/lib/types";
-import { useAuth } from "./AuthProvider";
 import { CryptoPay } from "./CryptoPay";
 
 type PledgeFormProps = {
@@ -17,13 +15,12 @@ type PledgeFormProps = {
 
 type CreatedPledge = Pick<
   Pledge,
-  "id" | "spidi_session_id" | "amount_usdt" | "amount_bs" | "bcv_rate" | "status"
+  "id" | "spidi_session_id" | "amount_usdt" | "amount_bs" | "bcv_rate" | "status" | "guest_token"
 >;
 
 type Step = "form" | "pay" | "confirming" | "done" | "unconfirmed";
 
 export function PledgeForm({ campaignId, recipientAlias, acceptingPledges }: PledgeFormProps) {
-  const { user, ready } = useAuth();
   const router = useRouter();
   const [amount, setAmount] = useState("5");
   const [busy, setBusy] = useState(false);
@@ -31,22 +28,12 @@ export function PledgeForm({ campaignId, recipientAlias, acceptingPledges }: Ple
   const [pledge, setPledge] = useState<CreatedPledge | null>(null);
   const [step, setStep] = useState<Step>("form");
 
-  if (!ready) return null;
-
   if (!acceptingPledges) {
     return <p className="muted">This campaign is no longer accepting pledges.</p>;
   }
 
   if (!recipientAlias) {
     return <p className="muted">The creator has not set a SPIDI alias yet.</p>;
-  }
-
-  if (!user) {
-    return (
-      <p className="muted">
-        <Link href="/login">Sign in</Link> to back this campaign.
-      </p>
-    );
   }
 
   async function onSubmit(event: FormEvent) {
@@ -60,7 +47,7 @@ export function PledgeForm({ campaignId, recipientAlias, acceptingPledges }: Ple
     setBusy(true);
     setError(null);
     try {
-      const response = await authedFetch("/api/pledges", {
+      const response = await optionalAuthFetch("/api/pledges", {
         method: "POST",
         body: JSON.stringify({ campaignId, amountUsdt: usdt }),
       });
@@ -78,7 +65,10 @@ export function PledgeForm({ campaignId, recipientAlias, acceptingPledges }: Ple
     if (!pledge) return;
     setStep("confirming");
     try {
-      const response = await authedFetch(`/api/pledges/${pledge.id}/confirm`, { method: "POST" });
+      const response = await optionalAuthFetch(`/api/pledges/${pledge.id}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ guestToken: pledge.guest_token }),
+      });
       const json = await readJson<{ status: Pledge["status"] }>(response);
       if (json.status === "paid") {
         setStep("done");
@@ -130,10 +120,13 @@ export function PledgeForm({ campaignId, recipientAlias, acceptingPledges }: Ple
     return (
       <div className="stack">
         <p className="muted">
-          SPIDI reported the payment but the server could not verify it yet. You can retry from{" "}
-          <Link href="/account">your account</Link>.
+          Payment may still be settling. Stay on this page and try again in a moment — do not
+          close the tab until you see confirmation.
         </p>
         {error && <p className="error">{error}</p>}
+        <button type="button" className="button" onClick={() => void confirm()}>
+          Retry confirmation
+        </button>
       </div>
     );
   }
@@ -154,7 +147,8 @@ export function PledgeForm({ campaignId, recipientAlias, acceptingPledges }: Ple
         {busy ? "Creating payment…" : "Back this campaign"}
       </button>
       <p className="muted small">
-        Paid in USDT via Binance Pay directly to @{recipientAlias}. Minimum {MIN_PLEDGE_USDT} USDT.
+        Paid in USDT via Binance Pay directly to @{recipientAlias}. Minimum {MIN_PLEDGE_USDT}{" "}
+        USDT. No account required.
       </p>
     </form>
   );

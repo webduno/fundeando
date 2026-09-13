@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin, getUserFromRequest } from "@/lib/supabase/server";
 import { createSpidiSession } from "@/lib/spidi/server";
@@ -6,14 +7,18 @@ import type { Campaign, Pledge, Profile } from "@/lib/types";
 
 type Body = { campaignId?: string; amountUsdt?: number };
 
+type CreatedPledge = Pick<
+  Pledge,
+  "id" | "spidi_session_id" | "amount_usdt" | "amount_bs" | "bcv_rate" | "status" | "guest_token"
+>;
+
 /**
  * POST /api/pledges
  * Creates the SPIDI session server-side (amounts computed here) and records a
- * `pending` pledge. The browser then drives Binance Pay with the returned session id.
+ * `pending` pledge. Auth is optional: guests get backer_id null + a guest_token.
  */
 export async function POST(request: Request) {
   const user = await getUserFromRequest(request);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = (await request.json().catch(() => null)) as Body | null;
   const campaignId = body?.campaignId;
@@ -62,20 +67,26 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: backer } = await admin
-    .from("profiles")
-    .select("display_name")
-    .eq("id", user.id)
-    .maybeSingle<Pick<Profile, "display_name">>();
+  let payerLabel = "Guest";
+  if (user) {
+    const { data: backer } = await admin
+      .from("profiles")
+      .select("display_name")
+      .eq("id", user.id)
+      .maybeSingle<Pick<Profile, "display_name">>();
+    payerLabel = backer?.display_name || user.email || "Backer";
+  }
 
   const amount = Math.round(amountUsdt * 100) / 100;
+  // Only guests need this; logged-in confirms use auth.uid() instead.
+  const guestToken = user ? null : randomBytes(24).toString("base64url");
 
   let session;
   try {
     session = await createSpidiSession({
       recipientAlias,
       usdtAmount: amount,
-      payerLabel: backer?.display_name || user.email || "Backer",
+      payerLabel,
       concept: `Pledge: ${campaign.title}`.slice(0, 60),
     });
   } catch (error) {
@@ -87,16 +98,17 @@ export async function POST(request: Request) {
     .from("pledges")
     .insert({
       campaign_id: campaign.id,
-      backer_id: user.id,
+      backer_id: user?.id ?? null,
       amount_usdt: session.usdtAmount,
       amount_bs: session.bsAmount,
       bcv_rate: session.bcvRate,
       recipient_alias: session.recipientAlias,
       spidi_session_id: session.sessionId,
+      guest_token: guestToken,
       status: "pending",
     })
-    .select("id, spidi_session_id, amount_usdt, amount_bs, bcv_rate, status")
-    .single<Pick<Pledge, "id" | "spidi_session_id" | "amount_usdt" | "amount_bs" | "bcv_rate" | "status">>();
+    .select("id, spidi_session_id, amount_usdt, amount_bs, bcv_rate, status, guest_token")
+    .single<CreatedPledge>();
 
   if (insertError || !pledge) {
     return NextResponse.json(
