@@ -21,10 +21,11 @@ export default function LoginPage() {
     event.preventDefault();
     setBusy(true);
     setError(null);
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
+    // Always the page you're on (local or Vercel). Do not bake NEXT_PUBLIC_SITE_URL
+    // into the email link — that was sending prod users to localhost.
     const { error: signInError } = await getSupabaseBrowser().auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: `${siteUrl}/account` },
+      options: { emailRedirectTo: `${window.location.origin}/account` },
     });
     setBusy(false);
     if (signInError) {
