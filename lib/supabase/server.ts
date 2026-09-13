@@ -1,17 +1,17 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
-import { supabaseAnonKey, supabaseUrl } from "./env";
+import { supabasePublishableKey, supabaseUrl } from "./env";
 
 const noSession = { auth: { persistSession: false, autoRefreshToken: false } };
 
 /** Anonymous server client. Only sees what RLS allows `anon` to see. */
 export function getSupabaseAnon(): SupabaseClient {
-  return createClient(supabaseUrl(), supabaseAnonKey(), noSession);
+  return createClient(supabaseUrl(), supabasePublishableKey(), noSession);
 }
 
-/** Service-role client. Bypasses RLS. Server only. */
+/** Secret-key client (`sb_secret_…`). Bypasses RLS. Server only. */
 export function getSupabaseAdmin(): SupabaseClient {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  const key = process.env.SUPABASE_SECRET_KEY;
+  if (!key) throw new Error("SUPABASE_SECRET_KEY is not set");
   return createClient(supabaseUrl(), key, noSession);
 }
 
